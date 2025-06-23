@@ -58,13 +58,36 @@ class DNN(nn.Module):  # Define a deep neural network
         out = self.output_layer(x3)
         return out
         
+def EL_assign(choice):
+    if choice == 1:
+        requ_rate = 12
+    elif choice == 2:
+        requ_rate = 10
+    elif choice == 3:
+        requ_rate = 9
+    else:
+        raise ValueError("Invalid choice. Choice must be 1, 2, or 3.")
+    return requ_rate
 
+def BL_assign(choice):
+    if choice == 1:
+        requ_rate = 4
+    elif choice == 2:
+        requ_rate = 2
+    elif choice == 3:
+        requ_rate = 1
+    else:
+        raise ValueError("Invalid choice. Choice must be 1, 2, or 3.")
+    return requ_rate
 class Agent:  # Define the agent (UE)
     
     def __init__(self, opt, sce, scenario, index, device):  # Initialize the agent (UE)
         self.opt = opt
         self.sce = sce
         self.id = index
+        self.video_choice = np.random.randint(1, 4)
+        self.bs_req_rate = BL_assign(self.video_choice)
+        self.el_req_rate = EL_assign(self.video_choice)
         self.device = device
         self.location = self.Set_Location(scenario)
         self.memory = ReplayMemory(opt.capacity)
@@ -91,7 +114,7 @@ class Agent:  # Define the agent (UE)
         L = scenario.BS_Number()  # The total number of BSs
         K = self.sce.nChannel  # The total number of channels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
         sample = random()       
-        if sample < eps_threshold:  # epsilon-greeedy policy
+        if sample < eps_threshold:  # epsilon-greeedy policy : exploiting
             with torch.no_grad():
                 Q_value = self.model_policy(state)   # Get the Q_value from DNN
                 action = Q_value.max(0)[1].view(1,1)
@@ -104,15 +127,15 @@ class Agent:  # Define the agent (UE)
         L = scenario.BS_Number()  # The total number of BSs
         K = self.sce.nChannel  # The total number of channels 
 
-        BS_selected = action_i // K
+        BS_selected = action_i // K # floor operation
         Ch_selected = action_i % K  # Translate to the selected BS and channel based on the selected action index
         Loc_diff = BS[BS_selected].Get_Location() - self.location
         distance = np.sqrt((Loc_diff[0]**2 + Loc_diff[1]**2))  # Calculate the distance between BS and UE
-        Rx_power = BS[BS_selected].Receive_Power(distance)  # Calculate the received power
+        Rx_power = BS[BS_selected].Receive_Power(self.id, distance)  # Calculate the received power
         
         if Rx_power == 0.0:
             reward = self.sce.negative_cost  # Out of range of the selected BS, thus obtain a negative reward
-            QoS = 0  # Definitely, QoS cannot be satisfied
+            Conn_State = 0  # Definitely, Conn_State cannot be satisfied
         else:                    # If inside the coverage, then we will calculate the reward value
             Interference = 0.0
             for i in range(self.opt.nagents):   # Obtain interference on the same channel
@@ -121,25 +144,36 @@ class Agent:  # Define the agent (UE)
                 if Ch_select_i == Ch_selected:  # Calculate the interference on the same channel
                     Loc_diff_i = BS[BS_select_i].Get_Location() - self.location
                     distance_i = np.sqrt((Loc_diff_i[0]**2 + Loc_diff_i[1]**2))
-                    Rx_power_i = BS[BS_select_i].Receive_Power(distance_i)
+                    Rx_power_i = BS[BS_select_i].Receive_Power(self.id, distance_i)
                     Interference += Rx_power_i   # Sum all the interference
             Interference -= Rx_power  # Remove the received power from interference
-            Noise = 10**((self.sce.N0)/10)*self.sce.BW  # Calculate the noise
-            SINR = Rx_power/(Interference + Noise)  # Calculate the SINR      
-            if SINR >= 10**(self.sce.QoS_thr/10):
-                QoS = 1
+            Noise = 10**((BS[BS_selected].Noise_dB)/10)*BS[BS_selected].BS_Bw_Per_Channel  # Calculate the noise
+            # print("Bandwidth:", BS[BS_selected].BS_Bw_Per_Channel, "Noise:", Noise, "Noise_dB:", BS[BS_selected].Noise_dB)
+            SINR = Rx_power/(Interference + Noise)  # Calculate the SINR   
+            Rate = BS[BS_selected].BS_Bw_Per_Channel * np.log2(1 + SINR) / (10**6) # rate in Mbps
+            print("Rate:", Rate, "SINR:", SINR, "Rx_power:", Rx_power, "Interference:", Interference, "Noise:", Noise)
+            if Rate >= self.bs_req_rate:
+                Conn_State = 1 
+                layers = 1 + (Rate - self.bs_req_rate) // self.el_req_rate
+                reward = Rate
+            else:
+                Conn_State = 0
+                layers = 0
+                reward = self.sce.negative_cost 
+            """if SINR >= 10**(self.sce.Conn_State_thr/10):
+                Conn_State = 1
                 reward = 1
             else:
-                QoS = 0   
+                Conn_State = 0   
                 reward = self.sce.negative_cost
-            """Rate = self.sce.BW * np.log2(1 + SINR) / (10**6)      # Calculate the rate of UE 
+            Rate = self.sce.BW * np.log2(1 + SINR) / (10**6)      # Calculate the rate of UE 
             profit = self.sce.profit * Rate
             Tx_power_dBm = BS[BS_selected].Transmit_Power_dBm()   # Calculate the transmit power of the selected BS
             cost = self.sce.power_cost * Tx_power_dBm + self.sce.action_cost  # Calculate the total cost
             reward = profit - cost """
         reward = torch.tensor([reward])
-        return QoS, reward
-    
+        return Conn_State, reward, layers
+
     def Save_Transition(self, state, action, next_state, reward, scenario):  # Store a transition
         L = scenario.BS_Number()     # The total number of BSs
         K = self.sce.nChannel        # The total number of channels

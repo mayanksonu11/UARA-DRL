@@ -1,5 +1,5 @@
 {  
-   "nagents": 30,
+   "nagents": 1000,
    "capacity": 500,
    "learningrate": 0.01,
    "momentum": 0.005,
@@ -9,7 +9,7 @@
    "eps_increment": 0.003,
    "batch_size": 8,
    "gamma": 0.9,
-   "nepisodes": 500,
+   "nepisodes": 50,
    "nsteps": 500,
    "nupdate": 50,
    "cuda":0
