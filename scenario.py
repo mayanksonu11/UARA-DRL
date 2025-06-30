@@ -15,6 +15,7 @@ from random_factor_sbs import *
 
 x_LOS_list, x_NLOS_list, z_list = [],[],[]
 x_list_sbs, z_list_sbs, R_list = [],[],[]
+NRB_sbs = 275
 
 class BS:  # Define the base station
     
@@ -48,8 +49,8 @@ class BS:  # Define the base station
         elif self.BStype == "FBS":
             Tx_Power_dBm = 20 
         return Tx_Power_dBm  # Transmit power in dBm, no consideration of power allocation now
-    
-    def loss_sbs(self, ue_id, d):  # Path loss of SBS
+
+    def loss_sbs_db(self, ue_id, d):  # Path loss of SBS
         alpha = 61.4  # some constant
         beta = 2
         x = x_list_sbs[self.id - self.sce.nMBS][ue_id]  # parameter used in eq
@@ -57,22 +58,14 @@ class BS:  # Define the base station
         path_loss = alpha + beta * 10 * np.log10(d) + x_dB  # path loss in dB
         return path_loss
 
-    def loss_mbs(self, ue_id, d):  # Path loss of MBS
+    def loss_mbs_db(self, ue_id, d):  # Path loss of MBS
         h_BS = 25  # height of BS
         h_UT = 2.5  # height of user
-        fc = 2.8e9  # Centre frequency in GHz 
+        fc = 2.8  # Centre frequency in GHz 
         c = 3e8  # Speed of light
         h_E = 1  # height of common ground
         # (verified and corrected)
-        d_BP = 4 * (h_BS - h_E) * (h_UT - h_E) * (fc / c)  # Effective distance (Friss free space equation)
-        K = 10**(-2)  # Some constant
-        print("d_BP:", d_BP)
-        # Channel modeling
-        x_LOS = x_LOS_list[ue_id]
-        x_NLOS = x_NLOS_list[ue_id]
-        z = z_list[ue_id]
-        G_LOS = 10 * np.log10(K * x_LOS * z)
-        G_NLOS = 10 * np.log10(K * x_NLOS * z)
+        d_BP = 4 * (h_BS - h_E) * (h_UT - h_E) * (fc / c) * 1e9  # Effective distance (Friss free space equation)
 
         # 3D distance
         d_3D = np.sqrt((d)**2 + (h_BS - h_UT)**2)
@@ -83,60 +76,78 @@ class BS:  # Define the base station
         # Path loss and total gain for LOS
         if (d) <= d_BP:
             PL_LOS = 28.0 + 22 * np.log10(d_3D) + 20 * np.log10(fc)
-            Tot_gain_LOS = G_LOS - PL_LOS
+            # print("PL_LOS:", PL_LOS, "d_3D:", d_3D, "fc:", fc)  # Debug: Uncomment for troubleshooting
         else:
             PL_LOS = 28.0 + 40 * np.log10(d_3D) + 20 * np.log10(fc) - 9 * np.log10(d_BP**2 + (h_BS - h_UT)**2)
-            Tot_gain_LOS = G_LOS - PL_LOS
+            # Tot_gain_LOS = G_LOS - PL_LOS
 
         # Path loss and total gain for NLOS
         PL_NLOS = max(PL_LOS, PL_NLOS1)
-        Tot_gain_NLOS = G_NLOS - PL_NLOS
+        # Tot_gain_NLOS = G_NLOS - PL_NLOS
 
         # if d < 0.6 use LOS, else use NLOS
-        if d < 600:
-            Tot_gain = Tot_gain_LOS
+        if d < self.BS_Radius:
+            Tot_path_loss_db = PL_LOS
         else:
-            Tot_gain = Tot_gain_NLOS
+            Tot_path_loss_db = PL_NLOS
 
-        return Tot_gain # Path loss in dB, which is the total gain of the channel
+        return Tot_path_loss_db # Path loss in dB, which is the total gain of the channel
 
-    def tx_gain_sbs(self, ue_id):  # Calculate the transmit gain of a certain BS
+    def tx_gain_sbs_db(self, ue_id):  # Calculate the transmit gain of a certain BS
         f = 28e9  # millimeter wave frequency (Hz)
         lamda = 3e8 / f  # wavelength (meters)
+        p_t_RB = 1.0/NRB_sbs
+        p_t_dB = 10 * np.log10(p_t_RB)
         L_t = 0.009  # transmitter antenna length (meters)
         L_r = 0.009  # receiver antenna length (meters)
         G_t = 20 * np.log10(np.pi * L_t / lamda)
         G_r = 20 * np.log10(np.pi * L_r / lamda)
         R = R_list[self.id - self.sce.nMBS][ue_id]  # Get the random factor for SBS
-        var_gamma= 10*np.log10(np.abs(R))
-        tx_gain = G_t + G_r + var_gamma  # Transmit gain in dB
+        random_gain_dB = 10 * np.log10(np.abs(R))
+        tx_gain = G_t + G_r + p_t_dB + random_gain_dB  # Transmit gain in dB
         return tx_gain
 
-    def tx_gain_mbs(self):
-        G_T=10  # Transmitter gain
-        G_R=10  # Receiver gain
-        tx_gain = G_T + G_R  # Transmit gain in dB
-        return tx_gain
+    def tx_gain_mbs_db(self, ue_id, d):  # Calculate the transmit gain of a certain BS
+        K = 10**(-2)  # Some constant
+        # Channel modeling
+        x_LOS = x_LOS_list[ue_id]
+        x_NLOS = x_NLOS_list[ue_id]
+        z = z_list[ue_id]
+        G_LOS = 10 * np.log10(K * x_LOS * z)
+        G_NLOS = 10 * np.log10(K * x_NLOS * z)
 
+        if d < self.BS_Radius:
+            gain_db = G_LOS
+        else:
+            gain_db = G_NLOS
+
+        G_T= 20*np.log10(10)  # Transmitter gain
+        G_R= 20*np.log10(10)  # Receiver gain
+        tx_gain_db = G_T + G_R + gain_db  # Transmit gain in dB
+        return tx_gain_db
+
+    def tx_power_per_channel_dB(self):  # Calculate the transmit power per channel in dB
+        Tx_Power_dBm = self.Transmit_Power_dBm()  # Get the transmit power in dBm
+        Tx_power_watt_per_channel = 10**((Tx_Power_dBm - 30)/ 10) / self.sce.nChannel  # Transmit power in W, divided by the number of channels
+        Tx_power_per_channel_dB = 10 * np.log10(Tx_power_watt_per_channel)  # Transmit power in dBm per channel
+        return Tx_power_per_channel_dB  # Transmit power in dB per channel
     
     def Receive_Power(self, ue_id, d):  # Calculate the received power by transmit power and path loss of a certain BS
-        Tx_Power_dBm = self.Transmit_Power_dBm()
-        Tx_power_watt_per_channel = 10**((Tx_Power_dBm - 30)/ 10)/ self.sce.nChannel  # Transmit power in W, divided by the number of channels
-        Tx_power_per_channel_dB = 10 * np.log10(Tx_power_watt_per_channel)  # Transmit power in dB per channel
-        noise_dB = 0
+        Tx_power_per_channel_dB = self.tx_power_per_channel_dB()  # Transmit power per channel in dBm
+        noise_dB = self.Noise_dB
         if self.BStype == "MBS":
-            loss_dB = self.loss_mbs(ue_id, d)
-            tx_gain_dB = self.tx_gain_mbs()  # Transmit gain in dB
+            loss_dB = self.loss_mbs_db(ue_id, d)
+            tx_gain_dB = self.tx_gain_mbs_db(ue_id, d)  # Transmit gain in dB
         elif self.BStype == "SBS":
-            loss_dB = self.loss_sbs(ue_id,d)
-            tx_gain_dB = self.tx_gain_sbs(ue_id)  # Transmit gain in dB
+            loss_dB = self.loss_sbs_db(ue_id,d)
+            tx_gain_dB = self.tx_gain_sbs_db(ue_id)  # Transmit gain in dB
         elif self.BStype == "FBS":
             loss = 37 + 30 * np.log10(d)  
 
         Rx_power_dB = Tx_power_per_channel_dB + tx_gain_dB - loss_dB # Received power in dBm
-        Rx_power = 10**(Rx_power_dB/10)  # Received power in mW
+        Rx_power = 10**(Rx_power_dB/10)  # Received power in W
         
-        return Rx_power        
+        return Rx_power
         
         
 class Scenario:  # Define the network scenario

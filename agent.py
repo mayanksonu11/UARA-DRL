@@ -147,11 +147,12 @@ class Agent:  # Define the agent (UE)
                     Rx_power_i = BS[BS_select_i].Receive_Power(self.id, distance_i)
                     Interference += Rx_power_i   # Sum all the interference
             Interference -= Rx_power  # Remove the received power from interference
-            Noise = 10**((BS[BS_selected].Noise_dB)/10)*BS[BS_selected].BS_Bw_Per_Channel  # Calculate the noise
+            Noise = 10**((BS[BS_selected].Noise_dB)/10)  # Calculate the noise
             # print("Bandwidth:", BS[BS_selected].BS_Bw_Per_Channel, "Noise:", Noise, "Noise_dB:", BS[BS_selected].Noise_dB)
             SINR = Rx_power/(Interference + Noise)  # Calculate the SINR   
             Rate = BS[BS_selected].BS_Bw_Per_Channel * np.log2(1 + SINR) / (10**6) # rate in Mbps
-            print("Rate:", Rate, "SINR:", SINR, "Rx_power:", Rx_power, "Interference:", Interference, "Noise:", Noise)
+            assert(SINR >= 0), "SINR cannot be negative, check the received power and interference calculation."
+            # print("Rate:", Rate, "SINR:", SINR, "Rx_power:", Rx_power, "Interference:", Interference, "Noise:", Noise)
             if Rate >= self.bs_req_rate:
                 Conn_State = 1 
                 layers = 1 + (Rate - self.bs_req_rate) // self.el_req_rate

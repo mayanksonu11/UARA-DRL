@@ -1,6 +1,6 @@
 {  
-   "nagents": 1000,
-   "capacity": 500,
+   "nagents": 100,
+   "capacity": 5000,
    "learningrate": 0.01,
    "momentum": 0.005,
    "eps_max": 0.9,
