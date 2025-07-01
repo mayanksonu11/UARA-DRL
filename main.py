@@ -34,7 +34,7 @@ def run_episodes(opt, sce, agents, scenario):
     state_target = torch.ones(opt.nagents)  # The Conn_State requirement
     layers = torch.zeros(opt.nagents, dtype=int)  # Number of layers for each agent
     f= open("DDQN.csv","w+")
-    f.write("This includes the running steps:\n")
+    f.write("Episode,Num_BaseStations,Num_Users,Final_Reward,Total_Connected,Final_Layers\n")
     while nepisode < opt.nepisodes:
         state = torch.zeros(opt.nagents)  # Reset the state   
         next_state = torch.zeros(opt.nagents)  # Reset the next_state
@@ -67,9 +67,9 @@ def run_episodes(opt, sce, agents, scenario):
         final_layers = layers
         print('Total connected UEs:', sum(state))
         total_connected = torch.sum(state).item()  # Sum the Conn_State
-        f.write("%i \n" % nstep)
+        # f.write("%i \n" % nstep)
+        f.write(str(nepisode) + "," + str(sce.nMBS + sce.nSBS  + sce.nFBS) + ","  + str(sce.nUsers) + "," + str(final_reward) + "," + str(total_connected) + "," + str(final_layers.tolist()) +  "\n")
         nepisode += 1
-    f.write((sce.nMBS + sce.nSBS  + sce.nFBS) + ","  + sce.numUsers + "," + str(final_reward) + "," + str(total_connected) + "," + str(final_layers) +  "\n")
     f.close()
                 
 def run_trial(opt, sce):
