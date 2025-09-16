@@ -4,7 +4,7 @@ Created on Thu Jan 30 11:51:36 2020
 
 @author: liangyu
 
-Create the agent for a UE
+Create the agent for a BS
 """
 
 import copy
@@ -46,10 +46,10 @@ class DNN(nn.Module):  # Define a deep neural network
 
     def __init__(self, opt, sce, scenario):  # Define the layers of the fully-connected hidden network
         super(DNN, self).__init__()
-        self.input_layer = nn.Linear(opt.nagents, 64)
+        self.input_layer = nn.Linear(sce.nUsers, 64)
         self.middle1_layer = nn.Linear(64, 32)
         self.middle2_layer = nn.Linear(32, 32)
-        self.output_layer = nn.Linear(32, scenario.BS_Number() * sce.nChannel)
+        self.output_layer = nn.Linear(32, sce.nUsers)
 		
     def forward(self, state):  # Define the neural network forward function
         x1 = F.relu(self.input_layer(state))
@@ -58,120 +58,64 @@ class DNN(nn.Module):  # Define a deep neural network
         out = self.output_layer(x3)
         return out
         
-def EL_assign(choice):
-    if choice == 1:
-        requ_rate = 12
-    elif choice == 2:
-        requ_rate = 10
-    elif choice == 3:
-        requ_rate = 9
-    else:
-        raise ValueError("Invalid choice. Choice must be 1, 2, or 3.")
-    return requ_rate
 
-def BL_assign(choice):
-    if choice == 1:
-        requ_rate = 4
-    elif choice == 2:
-        requ_rate = 2
-    elif choice == 3:
-        requ_rate = 1
-    else:
-        raise ValueError("Invalid choice. Choice must be 1, 2, or 3.")
-    return requ_rate
-class Agent:  # Define the agent (UE)
-    
-    def __init__(self, opt, sce, scenario, index, device):  # Initialize the agent (UE)
+class BS_Agent:  # Define the agent (BS)
+
+    def __init__(self, opt, sce, scenario, index, device):  # Initialize the agent (BS)
         self.opt = opt
         self.sce = sce
-        self.id = index
-        self.video_choice = np.random.randint(1, 4)
-        self.bs_req_rate = BL_assign(self.video_choice)
-        self.el_req_rate = EL_assign(self.video_choice)
+        self.id = index  # BS index
         self.device = device
-        self.location = self.Set_Location(scenario)
         self.memory = ReplayMemory(opt.capacity)
         self.model_policy = DNN(opt, sce, scenario)
         self.model_target = DNN(opt, sce, scenario)
         self.model_target.load_state_dict(self.model_policy.state_dict())
         self.model_target.eval()
         self.optimizer = optim.RMSprop(params=self.model_policy.parameters(), lr=opt.learningrate, momentum=opt.momentum)
-
-    def Set_Location(self, scenario):  # Initialize the location of the agent
-        Loc_MBS, _ , _ = scenario.BS_Location()
-        Loc_agent = np.zeros(2)
-        LocM = choice(Loc_MBS)
-        r = self.sce.rMBS*random()
-        theta = uniform(-pi,pi)
-        Loc_agent[0] = LocM[0] + r*np.cos(theta)
-        Loc_agent[1] = LocM[1] + r*np.sin(theta) 
-        return Loc_agent
-    
-    def Get_Location(self):
-        return self.location
      
-    def Select_Action(self, state, scenario, eps_threshold):   # Select action for a user based on the network state
-        L = scenario.BS_Number()  # The total number of BSs
-        K = self.sce.nChannel  # The total number of channels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
-        sample = random()       
+    def Select_Action(self, state, scenario, eps_threshold):   # Select action for a BS based on the network state
+        sample = random()
         if sample < eps_threshold:  # epsilon-greeedy policy : exploiting
             with torch.no_grad():
                 Q_value = self.model_policy(state)   # Get the Q_value from DNN
                 action = Q_value.max(0)[1].view(1,1)
-        else:           
-            action = torch.tensor([[randrange(L*K)]], dtype=torch.long)
-        return action      
+        else:
+            action = torch.tensor([[randrange(self.sce.nUsers)]], dtype=torch.long)
+        return action
         		
-    def Get_Reward(self, action, action_i, state, scenario):  # Get reward for the state-action pair
-        BS = scenario.Get_BaseStations()
-        L = scenario.BS_Number()  # The total number of BSs
-        K = self.sce.nChannel  # The total number of channels 
+    def Get_Reward(self, action, action_i, state, scenario):  # action_i is UE selected by this BS
+        ue_id = action_i.item() if hasattr(action_i, 'item') else action_i
+        ue_loc = scenario.Get_UE_Location(ue_id)
+        bs_loc = scenario.Get_BaseStations()[self.id].Get_Location()
+        Loc_diff = bs_loc - ue_loc
+        distance = np.sqrt((Loc_diff[0]**2 + Loc_diff[1]**2))
+        Rx_power = scenario.Get_BaseStations()[self.id].Receive_Power(ue_id, distance)
 
-        BS_selected = action_i // K # floor operation
-        Ch_selected = action_i % K  # Translate to the selected BS and channel based on the selected action index
-        Loc_diff = BS[BS_selected].Get_Location() - self.location
-        distance = np.sqrt((Loc_diff[0]**2 + Loc_diff[1]**2))  # Calculate the distance between BS and UE
-        Rx_power = BS[BS_selected].Receive_Power(self.id, distance)  # Calculate the received power
-        
         if Rx_power == 0.0:
-            reward = self.sce.negative_cost  # Out of range of the selected BS, thus obtain a negative reward
-            Conn_State = 0  # Definitely, Conn_State cannot be satisfied
-        else:                    # If inside the coverage, then we will calculate the reward value
+            reward = self.sce.negative_cost
+            Conn_State = 0
+            layers = 0
+        else:
             Interference = 0.0
-            for i in range(self.opt.nagents):   # Obtain interference on the same channel
-                BS_select_i = action[i] // K
-                Ch_select_i = action[i] % K   # The choice of other users
-                if Ch_select_i == Ch_selected:  # Calculate the interference on the same channel
-                    Loc_diff_i = BS[BS_select_i].Get_Location() - self.location
-                    distance_i = np.sqrt((Loc_diff_i[0]**2 + Loc_diff_i[1]**2))
-                    Rx_power_i = BS[BS_select_i].Receive_Power(self.id, distance_i)
-                    Interference += Rx_power_i   # Sum all the interference
-            Interference -= Rx_power  # Remove the received power from interference
-            Noise = 10**((BS[BS_selected].Noise_dB)/10)  # Calculate the noise
-            # print("Bandwidth:", BS[BS_selected].BS_Bw_Per_Channel, "Noise:", Noise, "Noise_dB:", BS[BS_selected].Noise_dB)
-            SINR = Rx_power/(Interference + Noise)  # Calculate the SINR   
-            Rate = BS[BS_selected].BS_Bw_Per_Channel * np.log2(1 + SINR) / (10**6) # rate in Mbps
-            assert(SINR >= 0), "SINR cannot be negative, check the received power and interference calculation."
-            # print("Rate:", Rate, "SINR:", SINR, "Rx_power:", Rx_power, "Interference:", Interference, "Noise:", Noise)
-            if Rate >= self.bs_req_rate:
-                Conn_State = 1 
-                layers = 1 + (Rate - self.bs_req_rate) // self.el_req_rate
+            for j in range(self.opt.nagents):
+                if action[j].item() == ue_id and j != self.id:  # Other BS also serving this UE
+                    bs_j_loc = scenario.Get_BaseStations()[j].Get_Location()
+                    Loc_diff_j = bs_j_loc - ue_loc
+                    distance_j = np.sqrt((Loc_diff_j[0]**2 + Loc_diff_j[1]**2))
+                    Rx_power_j = scenario.Get_BaseStations()[j].Receive_Power(ue_id, distance_j)
+                    Interference += Rx_power_j
+            Noise = 10**((scenario.Get_BaseStations()[self.id].Noise_dB)/10)
+            SINR = Rx_power / (Interference + Noise)
+            Rate = scenario.Get_BaseStations()[self.id].BS_Bw_Per_Channel * np.log2(1 + SINR) / (10**6)
+            bs_req, el_req = scenario.Get_UE_Req_Rates(ue_id)
+            if Rate >= bs_req:
+                Conn_State = 1
+                layers = 1 + (Rate - bs_req) // el_req
                 reward = Rate
             else:
                 Conn_State = 0
                 layers = 0
-                reward = self.sce.negative_cost 
-            """if SINR >= 10**(self.sce.Conn_State_thr/10):
-                Conn_State = 1
-                reward = 1
-            else:
-                Conn_State = 0   
                 reward = self.sce.negative_cost
-            Rate = self.sce.BW * np.log2(1 + SINR) / (10**6)      # Calculate the rate of UE 
-            profit = self.sce.profit * Rate
-            Tx_power_dBm = BS[BS_selected].Transmit_Power_dBm()   # Calculate the transmit power of the selected BS
-            cost = self.sce.power_cost * Tx_power_dBm + self.sce.action_cost  # Calculate the total cost
-            reward = profit - cost """
         reward = torch.tensor([reward])
         return Conn_State, reward, layers
 
@@ -219,24 +163,3 @@ class Agent:  # Define the agent (UE)
         for param in self.model_policy.parameters():
             param.grad.data.clamp_(-1, 1)
         self.optimizer.step()
-
-            
-            
-
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-
-
-        
-        
-        

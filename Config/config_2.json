@@ -1,5 +1,5 @@
-{  
-   "nagents": 100,
+{
+   "nagents": 36,
    "capacity": 5000,
    "learningrate": 0.01,
    "momentum": 0.005,

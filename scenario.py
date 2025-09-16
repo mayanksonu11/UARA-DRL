@@ -17,6 +17,28 @@ x_LOS_list, x_NLOS_list, z_list = [],[],[]
 x_list_sbs, z_list_sbs, R_list = [],[],[]
 NRB_sbs = 275
 
+def EL_assign(choice):
+    if choice == 1:
+        requ_rate = 12
+    elif choice == 2:
+        requ_rate = 10
+    elif choice == 3:
+        requ_rate = 9
+    else:
+        raise ValueError("Invalid choice. Choice must be 1, 2, or 3.")
+    return requ_rate
+
+def BL_assign(choice):
+    if choice == 1:
+        requ_rate = 4
+    elif choice == 2:
+        requ_rate = 2
+    elif choice == 3:
+        requ_rate = 1
+    else:
+        raise ValueError("Invalid choice. Choice must be 1, 2, or 3.")
+    return requ_rate
+
 class BS:  # Define the base station
     
     def __init__(self, sce, BS_index, BS_type, BS_Loc, BS_Radius, BS_Bw):  # Initialize the base station
@@ -151,14 +173,33 @@ class BS:  # Define the base station
         
         
 class Scenario:  # Define the network scenario
-    
+
     def __init__(self, sce):  # Initialize the scenario we simulate
         self.sce = sce
-        self.BaseStations = self.BS_Init()  
+        self.Loc_MBS, self.Loc_SBS, self.Loc_FBS = self.BS_Location()
+        self.BaseStations = self.BS_Init()
         global x_LOS_list, x_NLOS_list, z_list
-        global x_list_sbs, z_list_sbs, R_list 
+        global x_list_sbs, z_list_sbs, R_list
         x_LOS_list, x_NLOS_list, z_list = random_factor_mbs(self.sce.nUsers)
-        x_list_sbs, z_list_sbs, R_list = random_factor_sbs(self.sce.nUsers, self.sce.nSBS)    
+        x_list_sbs, z_list_sbs, R_list = random_factor_sbs(self.sce.nUsers, self.sce.nSBS)
+        # Initialize UEs
+        self.UE_Locations = []
+        self.UE_BS_Req_Rates = []
+        self.UE_EL_Req_Rates = []
+        for i in range(self.sce.nUsers):
+            Loc_agent = np.zeros(2)
+            if self.sce.nMBS > 0:
+                LocM = self.Loc_MBS[0]
+            else:
+                LocM = np.array([0, 0])
+            r = self.sce.rMBS * random()
+            theta = uniform(-pi, pi)
+            Loc_agent[0] = LocM[0] + r * np.cos(theta)
+            Loc_agent[1] = LocM[1] + r * np.sin(theta)
+            self.UE_Locations.append(Loc_agent)
+            video_choice = np.random.randint(1, 4)
+            self.UE_BS_Req_Rates.append(BL_assign(video_choice))
+            self.UE_EL_Req_Rates.append(EL_assign(video_choice))
         
     def reset(self):   # Reset the scenario we simulate
         for i in range(len(self.BaseStations)):
@@ -209,9 +250,9 @@ class Scenario:  # Define the network scenario
 
         return Loc_MBS, Loc_SBS, Loc_FBS
     
-    def BS_Init(self):   # Initialize all the base stations 
+    def BS_Init(self):   # Initialize all the base stations
         BaseStations = []  # The vector of base stations
-        Loc_MBS, Loc_SBS, Loc_FBS = self.BS_Location()
+        Loc_MBS, Loc_SBS, Loc_FBS = self.Loc_MBS, self.Loc_SBS, self.Loc_FBS
         
         for i in range(self.sce.nMBS):  # Initialize the MBSs
             BS_index = i
@@ -238,8 +279,8 @@ class Scenario:  # Define the network scenario
     def Get_BaseStations(self):
         return self.BaseStations
 
+    def Get_UE_Location(self, ue_id):
+        return self.UE_Locations[ue_id]
 
-        
-            
-    
-
+    def Get_UE_Req_Rates(self, ue_id):
+        return self.UE_BS_Req_Rates[ue_id], self.UE_EL_Req_Rates[ue_id]
