@@ -9,6 +9,7 @@ Running simuluation
 
 import copy, json, argparse
 import torch
+import time
 from scenario import Scenario
 from agent import BS_Agent
 from dotdic import DotDic
@@ -39,8 +40,10 @@ def run_episodes(opt, sce, agents, scenario):
     state_target = torch.ones(sce.nUsers, device=device)  # The Conn_State requirement
     layers = torch.zeros(opt.nagents, dtype=int, device=device)  # Number of layers for each agent
     f= open("DDQN.csv","w+")
-    f.write("Episode,Num_BaseStations,Num_Users,Final_Reward,Total_Connected,Final_Layers\n")
+    f.write("Episode,Num_BaseStations,Num_Users,Final_Reward,Total_Connected,Final_Layers,Execution_Time\n")
     while nepisode < opt.nepisodes:
+        episode_start_time = time.time()
+
         state = torch.zeros(sce.nUsers, device=device)  # Reset the state
         next_state = torch.zeros(sce.nUsers, device=device)  # Reset the next_state
         nstep = 0
@@ -67,15 +70,20 @@ def run_episodes(opt, sce, agents, scenario):
             if torch.all(state.eq(state_target)):  # If Conn_State is satisified, break
                 break
             nstep += 1
-        print('Episode Number:', nepisode, 'Training Step:', nstep)       
+
+        episode_end_time = time.time()
+        episode_duration = episode_end_time - episode_start_time
+
+        print('Episode Number:', nepisode, 'Training Step:', nstep)
         final_reward = torch.sum(reward).item()  # Sum the reward
         print('Final Reward:', final_reward)
         print('Total Layers:', layers)
         final_layers = layers
         print('Total connected UEs:', sum(state))
         total_connected = torch.sum(state).item()  # Sum the Conn_State
+        print(f"Episode execution time: {episode_duration:.2f} seconds")
         # f.write("%i \n" % nstep)
-        f.write(str(nepisode) + "," + str(sce.nMBS + sce.nSBS  + sce.nFBS) + ","  + str(sce.nUsers) + "," + str(final_reward) + "," + str(total_connected) + "," + str(final_layers.tolist()) +  "\n")
+        f.write(str(nepisode) + "," + str(sce.nMBS + sce.nSBS  + sce.nFBS) + ","  + str(sce.nUsers) + "," + str(final_reward) + "," + str(total_connected) + "," + str(final_layers.tolist()) + "," + f"{episode_duration:.2f}" + "\n")
         nepisode += 1
     f.close()
                 
