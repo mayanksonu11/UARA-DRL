@@ -67,8 +67,8 @@ class BS_Agent:  # Define the agent (BS)
         self.id = index  # BS index
         self.device = device
         self.memory = ReplayMemory(opt.capacity)
-        self.model_policy = DNN(opt, sce, scenario)
-        self.model_target = DNN(opt, sce, scenario)
+        self.model_policy = DNN(opt, sce, scenario).to(device)
+        self.model_target = DNN(opt, sce, scenario).to(device)
         self.model_target.load_state_dict(self.model_policy.state_dict())
         self.model_target.eval()
         self.optimizer = optim.RMSprop(params=self.model_policy.parameters(), lr=opt.learningrate, momentum=opt.momentum)
@@ -77,10 +77,11 @@ class BS_Agent:  # Define the agent (BS)
         sample = random()
         if sample < eps_threshold:  # epsilon-greeedy policy : exploiting
             with torch.no_grad():
+                state = state.to(self.device)  # Ensure state is on correct device
                 Q_value = self.model_policy(state)   # Get the Q_value from DNN
                 action = Q_value.max(0)[1].view(1,1)
         else:
-            action = torch.tensor([[randrange(self.sce.nUsers)]], dtype=torch.long)
+            action = torch.tensor([[randrange(self.sce.nUsers)]], dtype=torch.long, device=self.device)
         return action
         		
     def Get_Reward(self, action, action_i, state, scenario):  # action_i is UE selected by this BS
@@ -116,16 +117,16 @@ class BS_Agent:  # Define the agent (BS)
                 Conn_State = 0
                 layers = 0
                 reward = self.sce.negative_cost
-        reward = torch.tensor([reward])
+        reward = torch.tensor([reward], device=self.device)
         return Conn_State, reward, layers
 
     def Save_Transition(self, state, action, next_state, reward, scenario):  # Store a transition
         L = scenario.BS_Number()     # The total number of BSs
         K = self.sce.nChannel        # The total number of channels
-        action = torch.tensor([[action]])
-        reward = torch.tensor([reward])
-        state = state.unsqueeze(0)
-        next_state = next_state.unsqueeze(0)
+        action = torch.tensor([[action]], device=self.device)
+        reward = torch.tensor([reward], device=self.device)
+        state = state.unsqueeze(0).to(self.device)
+        next_state = next_state.unsqueeze(0).to(self.device)
         self.memory.Push(state, action, next_state, reward)
     
     def Target_Update(self):  # Update the parameters of the target network
@@ -137,18 +138,18 @@ class BS_Agent:  # Define the agent (BS)
         transitions = self.memory.Sample(self.opt.batch_size)
         batch = Transition(*zip(*transitions))
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                          batch.next_state)), dtype=torch.bool)
+                                          batch.next_state)), dtype=torch.bool, device=self.device)
         non_final_next_states = torch.cat([s for s in batch.next_state
-                                                if s is not None])
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+                                                if s is not None]).to(self.device)
+        state_batch = torch.cat(batch.state).to(self.device)
+        action_batch = torch.cat(batch.action).to(self.device)
+        reward_batch = torch.cat(batch.reward).to(self.device)
         state_action_values = self.model_policy(state_batch).gather(1, action_batch)
-        next_state_values = torch.zeros(self.opt.batch_size)
-        
+        next_state_values = torch.zeros(self.opt.batch_size, device=self.device)
+
         next_action_batch = torch.unsqueeze(self.model_policy(non_final_next_states).max(1)[1], 1)
-        next_state_values = self.model_target(non_final_next_states).gather(1, next_action_batch) 
-        expected_state_action_values = (next_state_values * self.opt.gamma) + reward_batch.unsqueeze(1) 
+        next_state_values = self.model_target(non_final_next_states).gather(1, next_action_batch)
+        expected_state_action_values = (next_state_values * self.opt.gamma) + reward_batch.unsqueeze(1)
         # Compute Huber loss
         loss = F.smooth_l1_loss(state_action_values, expected_state_action_values)  # Double DQN
         """

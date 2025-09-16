@@ -14,6 +14,11 @@ from agent import BS_Agent
 from dotdic import DotDic
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+else:
+    print("Running on CPU")
 
 def create_agents(opt, sce, scenario, device):
 	agents = []   # Vector of agents
@@ -28,16 +33,16 @@ def run_episodes(opt, sce, agents, scenario):
     final_layers = 0
     total_connected = 0
 
-    action = torch.zeros(opt.nagents,dtype=int)
-    reward = torch.zeros(opt.nagents)
-    Conn_State = torch.zeros(sce.nUsers)
-    state_target = torch.ones(sce.nUsers)  # The Conn_State requirement
-    layers = torch.zeros(opt.nagents, dtype=int)  # Number of layers for each agent
+    action = torch.zeros(opt.nagents,dtype=int, device=device)
+    reward = torch.zeros(opt.nagents, device=device)
+    Conn_State = torch.zeros(sce.nUsers, device=device)
+    state_target = torch.ones(sce.nUsers, device=device)  # The Conn_State requirement
+    layers = torch.zeros(opt.nagents, dtype=int, device=device)  # Number of layers for each agent
     f= open("DDQN.csv","w+")
     f.write("Episode,Num_BaseStations,Num_Users,Final_Reward,Total_Connected,Final_Layers\n")
     while nepisode < opt.nepisodes:
-        state = torch.zeros(sce.nUsers)  # Reset the state
-        next_state = torch.zeros(sce.nUsers)  # Reset the next_state
+        state = torch.zeros(sce.nUsers, device=device)  # Reset the state
+        next_state = torch.zeros(sce.nUsers, device=device)  # Reset the next_state
         nstep = 0
         while nstep < opt.nsteps:
             eps_threshold = opt.eps_min + opt.eps_increment * nstep * (nepisode + 1)
@@ -47,7 +52,7 @@ def run_episodes(opt, sce, agents, scenario):
                 # Exponential decay epsilon
             for i in range(opt.nagents):
                 action[i] = agents[i].Select_Action(state, scenario, eps_threshold)  # Select action
-            Conn_State = torch.zeros(sce.nUsers)
+            Conn_State = torch.zeros(sce.nUsers, device=device)
             for i in range(opt.nagents):
                 ue_id = action[i].item()
                 Conn_State[ue_id], reward[i], layers[i] = agents[i].Get_Reward(action, action[i], state, scenario)  # Obtain reward and next state
