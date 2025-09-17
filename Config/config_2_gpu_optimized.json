@@ -1,0 +1,16 @@
+{
+   "nagents": 36,
+   "capacity": 10000,
+   "learningrate": 0.001,
+   "momentum": 0.005,
+   "eps_max": 0.95,
+   "eps_min": 0.01,
+   "eps_decay": 500,
+   "eps_increment": 0.001,
+   "batch_size": 32,
+   "gamma": 0.95,
+   "nepisodes": 100,
+   "nsteps": 500,
+   "nupdate": 100,
+   "cuda": 1
+}
